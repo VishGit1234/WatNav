@@ -1,0 +1,14 @@
+[
+    {
+        "buildingCode" : "STC",
+        "classNumber" : 10,
+        "xCord" : 0.0,
+        "yCord" : 0.0
+    },
+    {
+        "buildingCode" : "B2",
+        "classNumber" : 10,
+        "xCord" : 0.0,
+        "yCord" : 0.0
+    }
+]
