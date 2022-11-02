@@ -9,6 +9,7 @@ import 'package:watnav/buildings.dart';
 import 'package:location/location.dart';
 import 'package:watnav/navigation.dart';
 import 'package:flutter/foundation.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
   runApp(const MyApp());
@@ -38,6 +39,9 @@ class _WatNavState extends State<WatNav> {
   @override
   void initState() {
     super.initState();
+    //In the future remove this and instead generate the adjacency matrix
+    //and just save it in the program instead of running it eveytime the
+    //application loads
     navigation.setup();
     _getLocation();
   }
@@ -89,6 +93,7 @@ class _WatNavState extends State<WatNav> {
   int startFloor = -200;
   int endFloor = -200;
   LatLng origin = LatLng(0, 0);
+  double distance = 0.0;
   List<LatLng> path = [];
   List<Marker> markers = [
     Marker(
@@ -106,9 +111,12 @@ class _WatNavState extends State<WatNav> {
   final TextEditingController typeAheadController = TextEditingController();
   final TextEditingController typeAheadController2 = TextEditingController();
   static const String groundString = "GROUND - CURRENT LOCATION";
+  final Uri ATTRIBUTION_URL =
+      Uri.parse("https://www.openstreetmap.org/copyright");
   @override
   Widget build(BuildContext context) {
     return Stack(
+      alignment: Alignment.bottomRight,
       children: [
         FlutterMap(
           mapController: mapController,
@@ -149,7 +157,7 @@ class _WatNavState extends State<WatNav> {
                   suggestionsCallback: (pattern) {
                     List<String> matches = <String>[];
                     if (pattern.isNotEmpty) {
-                      matches.addAll(buildings.returnBuildings());
+                      matches.addAll(buildings.returnBuildings(groundString));
                       matches.retainWhere((s) {
                         return s.toLowerCase().contains(pattern.toLowerCase());
                       });
@@ -214,7 +222,7 @@ class _WatNavState extends State<WatNav> {
                           suggestionsCallback: ((pattern) {
                             List<String> matches = <String>[];
                             if (pattern.isNotEmpty) {
-                              matches.addAll(buildings.returnBuildings());
+                              matches.addAll(buildings.returnBuildings(""));
                               matches.retainWhere((s) {
                                 return s
                                     .toLowerCase()
@@ -273,7 +281,7 @@ class _WatNavState extends State<WatNav> {
                   ),
                 ),
                 onPressed: () {
-                  typeAheadController.text = groundString;
+                  typeAheadController2.text = groundString;
                   startBuilding = "GROUND";
                   //-200 = ground
                   startFloor = -200;
@@ -336,7 +344,7 @@ class _WatNavState extends State<WatNav> {
                   freeze when using WEB APP but THIS DOESN'T APPLY TO MOBILE.
                   */
                   Future.delayed(const Duration(milliseconds: 500), () {
-                    compute<IsolateModel, List<LatLng>>(
+                    compute<IsolateModel, Map<double, List<LatLng>>>(
                             getPathIndoor,
                             IsolateModel(
                                 origin,
@@ -350,10 +358,15 @@ class _WatNavState extends State<WatNav> {
                         .then((value) => {
                               Future.delayed(const Duration(milliseconds: 500),
                                   () {
+                                for (var k in value.keys) {
+                                  distance = k;
+                                }
+                                debugPrint(distance.toString());
+                                path = value[distance]!;
                                 //Generate map line
                                 setState(() {
                                   pathLine = Polyline(
-                                      points: value,
+                                      points: path,
                                       color: Colors.red,
                                       strokeWidth: 3.0);
                                   circularProgressIndicatorVisibility = false;
@@ -414,6 +427,27 @@ class _WatNavState extends State<WatNav> {
               ),
             ]),
           ),
+        ),
+        Container(
+          alignment: Alignment.topCenter,
+          width: 250,
+          height: 25,
+          color: Colors.white,
+          child: TextButton(
+            onPressed: () async {
+              if (!await launchUrl(ATTRIBUTION_URL)) {
+                throw 'Could not launch $ATTRIBUTION_URL';
+              }
+            },
+            child: const Text(
+              "© OpenStreetMap contributors",
+              style: TextStyle(
+                  decoration: TextDecoration.underline,
+                  fontSize: 15,
+                  fontFamily: "Times New Roman",
+                  color: Colors.blue),
+            ),
+          ),
         )
       ],
     );
@@ -421,7 +455,7 @@ class _WatNavState extends State<WatNav> {
 }
 
 //Cuz isolates are annoying the return type cannot have lat and lng
-List<LatLng> getPathIndoor(IsolateModel model) {
+Map<double, List<LatLng>> getPathIndoor(IsolateModel model) {
   var startLevel = model.startLevel;
   var endLevel = model.endLevel;
   var curPos = model.origin;
@@ -437,6 +471,7 @@ List<LatLng> getPathIndoor(IsolateModel model) {
   LatLng closestNodeToStartPos = LatLng(0.0, 0.0);
   double endNodeMinDist = double.maxFinite;
   LatLng closestNodeToEndPos = LatLng(0.0, 0.0);
+
   for (LatLng k in model.adjacencyMatrix.keys) {
     //Check for closest node only if on same level
     if (startLevel == model.nodeLevels[k]) {
@@ -461,6 +496,7 @@ List<LatLng> getPathIndoor(IsolateModel model) {
     distancesUnweighted[k] = double.maxFinite;
     visited[k] = false;
   }
+  //debugPrint(model.adjacencyMatrix[curPos]!.length.toString());
   //Add your starting position and ending position to the adjacency matrix
   model.adjacencyMatrix[curPos] = [closestNodeToStartPos];
   model.adjacencyMatrix[dest] = [closestNodeToEndPos];
@@ -501,6 +537,7 @@ List<LatLng> getPathIndoor(IsolateModel model) {
       }
     }
     if (closestNode == LatLng(0, 0)) {
+      //This means that a path could not be found
       debugPrint("Not sure how this happened but loool!");
       break;
     }
@@ -540,6 +577,7 @@ List<LatLng> getPathIndoor(IsolateModel model) {
       curNode = previousNodes[curNode]!;
     } while (curNode != src);
   }
-  return path;
-  //return 0;
+  Map<double, List<LatLng>> emptyDict = {};
+  emptyDict[distances[closestNodeToEndPos]!] = path;
+  return emptyDict;
 }

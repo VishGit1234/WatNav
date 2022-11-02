@@ -40,11 +40,18 @@ def createPath():
     for way in myroot.findall('way'):
         temp = False
         temp2 = False
+        isStairs = False
+        isIndoor = False
         for tag in way.findall('tag'):
-            if tag.attrib['v'] == 'footway' or tag.attrib['v'] == 'steps':
+            if tag.attrib['v'] == 'footway':
                 temp = True
-            if temp and tag.attrib['k'] == 'indoor' and tag.attrib['v'] == 'yes':
+                isStairs = False
+            if tag.attrib['v'] == 'steps':
+                temp = True
+                isStairs = True
+            if temp and tag.attrib['k'] == 'indoor' and tag.attrib['v'] == 'yes' and not isStairs:
                 temp2 = True
+                isIndoor = True
             if temp:
                 if temp2:
                     if tag.attrib['k'] == 'level':
@@ -52,11 +59,27 @@ def createPath():
                         if('.' in tag.attrib['v'] and not (';' in tag.attrib['v'])):
                             path['level'] = tag.attrib['v'].replace('.', '')
                         else:
-                            path['level'] = tag.attrib['v']
+                            if(tag.attrib['v'] == '0;1'):
+                                path['level'] = '10'
+                            elif(tag.attrib['v'] == '0;-1'):
+                                path['level'] = '-10'
+                            elif(tag.attrib['v'] == '2;3'):
+                                path['level'] = '23'
+                            elif(tag.attrib['v'] == '1;1.5'):
+                                path['level'] = '115'                            
+                            else:
+                                path['level'] = tag.attrib['v']
                 else:
-                    path = {}
-                    #-200 represents ground floor
-                    path['level'] = "-200"
+                    if isStairs and isIndoor:
+                        #999x for stairs
+                        path['level'] = 9990
+                    elif isStairs:
+                        #888x for stairs on ground
+                        path['level'] = 8880
+                    else:
+                        path = {}
+                        #-200 represents ground floor
+                        path['level'] = "-200"
                 line = []
                 for node in way.findall('nd'):
                     node_def = {}
@@ -84,5 +107,5 @@ def createPath():
 
 
             
-#createClassroomsList()
+createClassroomsList()
 createPath()
