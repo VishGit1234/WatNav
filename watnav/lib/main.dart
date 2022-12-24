@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -80,14 +81,11 @@ class _WatNavState extends State<WatNav> {
     }
   }
 
-  static double indoorWeight = 0.8;
+  static const double indoorWeight = 1.0;
   final MapController mapController = MapControllerImpl();
   final Location location = Location();
   bool circularProgressIndicatorVisibility = false;
   Buildings buildings = Buildings();
-  double lat = 43.4723;
-  double lng = -80.5449;
-  LatLng point = LatLng(43.4723, -80.5449);
   LatLng dest = LatLng(0, 0);
   late String startBuilding;
   int startFloor = -200;
@@ -95,6 +93,9 @@ class _WatNavState extends State<WatNav> {
   LatLng origin = LatLng(0, 0);
   double distance = 0.0;
   List<LatLng> path = [];
+  bool isOriginNode = false;
+  bool isDestNode = false;
+
   List<Marker> markers = [
     Marker(
         point: LatLng(0, 0),
@@ -107,6 +108,7 @@ class _WatNavState extends State<WatNav> {
           return const Icon(Icons.abc);
         })
   ];
+
   Polyline pathLine = Polyline(points: [], color: Colors.red);
   final TextEditingController typeAheadController = TextEditingController();
   final TextEditingController typeAheadController2 = TextEditingController();
@@ -120,8 +122,30 @@ class _WatNavState extends State<WatNav> {
       children: [
         FlutterMap(
           mapController: mapController,
-          options:
-              MapOptions(center: point, zoom: 16, minZoom: 16, maxZoom: 20),
+          options: MapOptions(
+            center: LatLng(43.4723, -80.5449),
+            zoom: 16,
+            minZoom: 16,
+            maxZoom: 20,
+            onTap: (pos, loc) {
+              dest = loc;
+              typeAheadController.text = loc.toString();
+              endFloor = -200;
+              isDestNode = false;
+              markers[0] = Marker(
+                width: 40,
+                height: 40,
+                point: dest,
+                builder: (context) => const Align(
+                  alignment: Alignment.topCenter,
+                  child: Icon(
+                    Icons.location_on,
+                    size: 20,
+                  ),
+                ),
+              );
+            },
+          ),
           children: [
             TileLayer(
               urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -129,11 +153,11 @@ class _WatNavState extends State<WatNav> {
               maxNativeZoom: 19,
               maxZoom: 25,
             ),
-            MarkerLayer(
-              markers: markers,
-            ),
             PolylineLayer(
               polylines: [pathLine],
+            ),
+            MarkerLayer(
+              markers: markers,
             ),
           ],
         ),
@@ -173,7 +197,8 @@ class _WatNavState extends State<WatNav> {
                     );
                   },
                   onSuggestionSelected: (suggestion) {
-                    dest = buildings.classrooms[suggestion]!.item1;
+                    isDestNode = true;
+                    dest = buildings.classrooms[suggestion]!.item2;
                     endFloor = buildings.classrooms[suggestion]!.item3;
                     mapController.move(dest, 20);
                     typeAheadController.text = suggestion;
@@ -242,10 +267,12 @@ class _WatNavState extends State<WatNav> {
                           onSuggestionSelected: (suggestion) {
                             typeAheadController2.text = suggestion;
                             if (suggestion != groundString) {
+                              isOriginNode = true;
                               startFloor =
                                   buildings.classrooms[suggestion]!.item3;
-                              origin = buildings.classrooms[suggestion]!.item1;
+                              origin = buildings.classrooms[suggestion]!.item2;
                             } else {
+                              isOriginNode = false;
                               _getLocation();
                               origin = curPos;
                               debugPrint(startFloor.toString());
@@ -318,22 +345,27 @@ class _WatNavState extends State<WatNav> {
                   ),
                 ),
                 onPressed: () {
-                  //LatLng temp = LatLng(43.471935837383704, -80.54473026509238);
-                  setState(() {
-                    circularProgressIndicatorVisibility = true;
-                    markers[1] = Marker(
-                      width: 40,
-                      height: 40,
-                      point: origin,
-                      builder: (context) => const Icon(
-                        Icons.my_location_rounded,
-                        size: 20,
-                        color: Colors.blue,
-                      ),
-                    );
-                  });
+                  if (origin != dest) {
+                    //LatLng temp = LatLng(43.471935837383704, -80.54473026509238);
+                    setState(() {
+                      circularProgressIndicatorVisibility = true;
+                      markers[1] = Marker(
+                        width: 40,
+                        height: 40,
+                        point: origin,
+                        builder: (context) => const Icon(
+                          Icons.my_location_rounded,
+                          size: 20,
+                          color: Colors.blue,
+                        ),
+                      );
+                    });
 
-                  /*IMPORTANT NOTE
+                    //Delete previous node info markers
+                    for (int i = 2; i < markers.length; i++) {
+                      markers.removeAt(i);
+                    }
+                    /*IMPORTANT NOTE
                   The future delayed below contains the code that generates the
                   path (run inside a seperate thread using an isolate spawned
                   with compute). Unforunately since flutter is dumb, there is no
@@ -343,46 +375,67 @@ class _WatNavState extends State<WatNav> {
                   algorithm must be made). For now though there will be a slight 
                   freeze when using WEB APP but THIS DOESN'T APPLY TO MOBILE.
                   */
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    compute<IsolateModel, Map<double, List<LatLng>>>(
-                            getPathIndoor,
-                            IsolateModel(
-                                origin,
-                                dest,
-                                startFloor,
-                                endFloor,
-                                navigation.pathObj.allPaths,
-                                navigation.adjMatrix,
-                                indoorWeight,
-                                navigation.levelsNodes))
-                        .then((value) => {
-                              Future.delayed(const Duration(milliseconds: 500),
-                                  () {
-                                for (var k in value.keys) {
-                                  distance = k;
-                                }
-                                debugPrint(distance.toString());
-                                path = value[distance]!;
-                                //Generate map line
-                                setState(() {
-                                  pathLine = Polyline(
-                                      points: path,
-                                      color: Colors.red,
-                                      strokeWidth: 3.0);
-                                  circularProgressIndicatorVisibility = false;
-                                });
-                                //Zoom out to show whole route
-                                LatLng routeCenter = LatLng(
-                                    origin.latitude +
-                                        ((origin.latitude - dest.latitude)
-                                                .abs() *
-                                            0.5),
-                                    origin.longitude +
-                                        ((origin.longitude - dest.longitude)
-                                                .abs() *
-                                            0.5));
-                                mapController.move(routeCenter, 17);
-                                /*
+                    Future.delayed(const Duration(milliseconds: 500), () {
+                      compute<IsolateModel, Map<double, List<LatLng>>>(
+                              getPathIndoor,
+                              IsolateModel(
+                                  origin,
+                                  dest,
+                                  startFloor,
+                                  endFloor,
+                                  navigation.pathObj.allPaths(),
+                                  navigation.adjMatrix(),
+                                  indoorWeight,
+                                  navigation.levelsNodes(),
+                                  navigation.nodeInfo.nodeInfo(),
+                                  isOriginNode,
+                                  isDestNode))
+                          .then((value) => {
+                                Future.delayed(
+                                    const Duration(milliseconds: 500), () {
+                                  for (var k in value.keys) {
+                                    if (k >= 0) {
+                                      distance = k;
+                                    }
+                                  }
+                                  //debugPrint(distance.toString());
+                                  path = value[distance]!;
+                                  //Generate map line
+                                  setState(() {
+                                    //Stairs is -1 in map
+                                    //Generate stair locations
+                                    for (var stairLoc in value[-1.0]!) {
+                                      Marker tempMark = Marker(
+                                        point: stairLoc,
+                                        builder: (context) => const Align(
+                                          alignment: Alignment.center,
+                                          child: Icon(
+                                            Icons.stairs_rounded,
+                                            size: 25,
+                                          ),
+                                        ),
+                                      );
+                                      markers.add(tempMark);
+                                    }
+                                    pathLine = Polyline(
+                                        points: path,
+                                        color: Colors.red,
+                                        strokeWidth: 3.0);
+                                    circularProgressIndicatorVisibility = false;
+                                  });
+                                  debugPrint(path[0].latitude.toString());
+                                  //Zoom out to show whole route
+                                  LatLng routeCenter = LatLng(
+                                      origin.latitude +
+                                          ((origin.latitude - dest.latitude)
+                                                  .abs() *
+                                              0.5),
+                                      origin.longitude +
+                                          ((origin.longitude - dest.longitude)
+                                                  .abs() *
+                                              0.5));
+                                  mapController.move(routeCenter, 17);
+                                  /*
                                 //Find angle of inital line
                                 debugPrint(mapController.rotation.toString());
                                 double angleFirstLine = 180 +
@@ -392,9 +445,10 @@ class _WatNavState extends State<WatNav> {
                                 mapController.moveAndRotate(temp, 22,
                                     mapController.rotation + angleFirstLine);
                                 */
-                              })
-                            });
-                  });
+                                })
+                              });
+                    });
+                  }
                 },
                 child: const Text(
                   "Let's GO!!",
@@ -468,27 +522,30 @@ Map<double, List<LatLng>> getPathIndoor(IsolateModel model) {
   Map<LatLng, LatLng> previousNodes = {};
   //Find closest node to current position
   double startNodeMinDist = double.maxFinite;
-  LatLng closestNodeToStartPos = LatLng(0.0, 0.0);
+  LatLng closestNodeToStartPos = curPos;
   double endNodeMinDist = double.maxFinite;
-  LatLng closestNodeToEndPos = LatLng(0.0, 0.0);
-
+  LatLng closestNodeToEndPos = dest;
   for (LatLng k in model.adjacencyMatrix.keys) {
-    //Check for closest node only if on same level
-    if (startLevel == model.nodeLevels[k]) {
-      //Get the node that is closest to the starting position
-      double tempDist = const Vincenty().distance(k, curPos);
-      if (tempDist < startNodeMinDist) {
-        startNodeMinDist = tempDist;
-        closestNodeToStartPos = k;
+    if (!model.isOriginNode) {
+      //Check for closest node only if on same level
+      if (startLevel == model.nodeLevels[k]) {
+        //Get the node that is closest to the starting position
+        double tempDist = const Vincenty().distance(k, curPos);
+        if (tempDist < startNodeMinDist) {
+          startNodeMinDist = tempDist;
+          closestNodeToStartPos = k;
+        }
       }
     }
-    //Check for closest node only if on same level
-    if (endLevel == model.nodeLevels[k]) {
-      //Get the node that is closest to the starting position
-      double tempDist = const Vincenty().distance(k, dest);
-      if (tempDist < endNodeMinDist) {
-        endNodeMinDist = tempDist;
-        closestNodeToEndPos = k;
+    if (!model.isDestNode) {
+      //Check for closest node only if on same level
+      if (endLevel == model.nodeLevels[k]) {
+        //Get the node that is closest to the starting position
+        double tempDist = const Vincenty().distance(k, dest);
+        if (tempDist < endNodeMinDist) {
+          endNodeMinDist = tempDist;
+          closestNodeToEndPos = k;
+        }
       }
     }
     //Initialise values in maps for Dijkstra's Algorithm
@@ -496,11 +553,13 @@ Map<double, List<LatLng>> getPathIndoor(IsolateModel model) {
     distancesUnweighted[k] = double.maxFinite;
     visited[k] = false;
   }
-  //debugPrint(model.adjacencyMatrix[curPos]!.length.toString());
   //Add your starting position and ending position to the adjacency matrix
-  model.adjacencyMatrix[curPos] = [closestNodeToStartPos];
-  model.adjacencyMatrix[dest] = [closestNodeToEndPos];
-  model.adjacencyMatrix[closestNodeToEndPos]!.add(dest);
+  if (!model.isOriginNode) {
+    model.adjacencyMatrix[curPos] = [closestNodeToStartPos];
+  }
+  if (!model.isDestNode) {
+    model.adjacencyMatrix[dest] = [closestNodeToEndPos];
+  }
   //Add distance of end node as infinity and set visited false
   distances[dest] = double.maxFinite;
   visited[dest] = false;
@@ -576,8 +635,23 @@ Map<double, List<LatLng>> getPathIndoor(IsolateModel model) {
       path.insert(0, curNode);
       curNode = previousNodes[curNode]!;
     } while (curNode != src);
+    path.insert(0, curPos);
   }
   Map<double, List<LatLng>> emptyDict = {};
   emptyDict[distances[closestNodeToEndPos]!] = path;
+  //Generate markers at stair locations
+  List<LatLng> stairLocations = [];
+  for (int nodeNum = 0; nodeNum < path.length; nodeNum++) {
+    if (model.nodeInfo.containsKey(path[nodeNum])) {
+      if (model.nodeInfo[path[nodeNum]]![0] == "stair") {
+        //Stairs is -1.0
+        stairLocations.add(path[nodeNum]);
+        nodeNum++;
+      }
+    }
+  }
+  //Stairs is -1.0
+  emptyDict[-1.0] = stairLocations;
+
   return emptyDict;
 }

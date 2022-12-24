@@ -1,6 +1,35 @@
 import xml.etree.ElementTree as ET
+import json
 #mytree = ET.parse('map.osm')
 #myroot = mytree.getroot()
+
+def createClassroomJSON():
+    mytree = ET.parse('map2.osm')
+    myroot = mytree.getroot()
+    classroomLevels = {}
+    temp = False
+    classroom = {}
+    for way in myroot.findall('way'):
+        for tag in way.findall('tag'):
+            if tag.attrib['k'] == 'classroom':
+                temp = True
+                classroomStr = tag.attrib['v']
+                nodesList = []
+                for node in way.findall('nd'):
+                    node_def = {}
+                    for all_node in myroot.findall('node'):
+                        if node.attrib['ref'] == all_node.attrib['id']:
+                            node_def['lat'] = all_node.attrib['lat']
+                            node_def['lon'] = all_node.attrib['lon']
+                            nodesList.append(node.attrib['ref'])
+                classroom[classroomStr] = nodesList
+            #Make sure in josm level comes after classroom number
+            if tag.attrib['k'] == 'level' and temp:
+                temp = False
+                classroom[classroomStr].append(tag.attrib['v'])
+    with open('classrooms.json', 'w') as f:
+        json.dump(classroom, f) 
+
 
 def createClassroomsList():
     mytree = ET.parse('map2.osm')
@@ -34,9 +63,13 @@ def createClassroomsList():
     return 0
 
 def createPath():
+    id = 0
+    nodeInfo = {}
+    nodeTracker = {}
     mytree = ET.parse('map2.osm')
     myroot = mytree.getroot()
     paths = []
+    tempLabels = {}
     for way in myroot.findall('way'):
         temp = False
         temp2 = False
@@ -87,13 +120,57 @@ def createPath():
                         if node.attrib['ref'] == all_node.attrib['id']:
                             node_def['lat'] = all_node.attrib['lat']
                             node_def['lon'] = all_node.attrib['lon']
-                    line.append(node_def)
+                            tempLabels[node.attrib['ref']] = node_def
+                            #Add different labels for each node
+                            if(isStairs):
+                                nodeTracker[node.attrib['ref']] = [node_def['lat'], node_def['lon']]
+                                nodeInfo[node.attrib['ref']] = {"stair" : True}
+                                id+=1
+                            else:
+                                nodeInfo[node.attrib['ref']] = {"stair" : False}
+                    line.append(node.attrib['ref'])
                 path['path'] = line
                 paths.append(path)
+    nodeLabels = tempLabels
+    with open('nodeLabels.json', 'w') as nodeLabelsFile:
+        json.dump(nodeLabels, nodeLabelsFile)
+    
+    with open('nodeInfo.json', 'w') as nodeInfoFile:
+        json.dump(nodeInfo, nodeInfoFile)
+    
+    with open('adjacencyMatrix.json', 'w') as pathsFile:
+        # create adjacency matrix
+        adj_matrix = {}
 
+        for pathNum in range(len(paths)):
+            for nodeNum in range(len(paths[pathNum]['path'])):
+                adj_matrix[paths[pathNum]['path'][nodeNum]] = {}
+                adj_matrix[paths[pathNum]['path'][nodeNum]]['adjacent'] = []
+                adj_matrix[paths[pathNum]['path'][nodeNum]]['level'] = paths[pathNum]['level']
+        for pathNum in range(len(paths)):
+            for nodeNum in range(len(paths[pathNum]['path'])):
+                path = paths[pathNum]['path']
+                if nodeNum == 0:
+                    adj_matrix[path[nodeNum]]['adjacent'].append(path[nodeNum + 1])  
+                elif nodeNum == len(path) - 1:
+                    adj_matrix[path[nodeNum]]['adjacent'].append(path[nodeNum - 1])
+                else:
+                    adj_matrix[path[nodeNum]]['adjacent'].append(path[nodeNum + 1]) 
+                    adj_matrix[path[nodeNum]]['adjacent'].append(path[nodeNum - 1])
+        json.dump(adj_matrix, pathsFile)
+
+    """
+    with open('nodeInfo.txt', 'w') as j:
+        for key in nodeInfo:
+            j.write("LatLng(" + str(nodeTracker[key][0]) + ", " + str(nodeTracker[key][1]) + ") : [")
+            for val in nodeInfo[key]:
+                j.write('"' + str(val) + '"' + ", ")
+            j.write("], ")
+            j.write('\n')
+    
     with open('paths.txt', 'w') as f:
         for i in paths:
-            f.write("Tuple2({" + "'level' : " + i["level"] + "}, {" + "'path' : [")
+            f.write("Tuple2({" + "'level' : " + str(i["level"]) + "}, {" + "'path' : [")
             f.write('\n')
             for j in i['path']:
                 f.write("LatLng(" + j['lat'] + ", " + j['lon'] + "), ")
@@ -102,10 +179,12 @@ def createPath():
             f.write('\n')
             f.write("}), ")
             f.write('\n')
+    """
     return 0
 
 
 
             
-createClassroomsList()
+#createClassroomsList()
+#createClassroomJSON()
 createPath()
