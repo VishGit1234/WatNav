@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,10 +6,9 @@ import 'package:flutter_map/plugin_api.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:watnav/buildings.dart';
-import 'package:watnav/api_key.dart';
+import 'package:watnav/navi.dart';
 import 'package:location/location.dart';
 import 'package:watnav/navigation.dart';
-import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 
