@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -6,10 +7,12 @@ import 'package:flutter_map/plugin_api.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:watnav/buildings.dart';
+import 'package:watnav/api_key.dart';
 import 'package:location/location.dart';
 import 'package:watnav/navigation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,14 +40,29 @@ class WatNav extends StatefulWidget {
 class _WatNavState extends State<WatNav> {
   late LatLng curPos;
   Navigation navigation = Navigation();
+  List<String> classroomList = [];
   @override
   void initState() {
     super.initState();
-    //In the future remove this and instead generate the adjacency matrix
-    //and just save it in the program instead of running it eveytime the
-    //application loads
     navigation.setup();
     _getLocation();
+    _getClassroomList();
+  }
+
+  void _getClassroomList() async {
+    var uri = Uri.http(requestUrl, "/classrooms");
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 3));
+      if (resp.statusCode == 200) {
+        for (var val in jsonDecode(resp.body)["value"]) {
+          classroomList.add(val.toString());
+        }
+      } else {
+        throw Exception("Failed to load classrooms");
+      }
+    } catch (err) {
+      debugPrint("-----> $err");
+    }
   }
 
   Future _getLocation() async {
@@ -95,6 +113,7 @@ class _WatNavState extends State<WatNav> {
   List<LatLng> path = [];
   bool isOriginNode = false;
   bool isDestNode = false;
+  String requestUrl = "20.175.143.102:5000";
 
   List<Marker> markers = [
     Marker(
@@ -123,6 +142,9 @@ class _WatNavState extends State<WatNav> {
         FlutterMap(
           mapController: mapController,
           options: MapOptions(
+            maxBounds: LatLngBounds(
+                LatLng(43.47625903088465, -80.56022596513974),
+                LatLng(43.46459913399943, -80.53560342017133)),
             center: LatLng(43.4723, -80.5449),
             zoom: 16,
             minZoom: 16,
@@ -148,12 +170,16 @@ class _WatNavState extends State<WatNav> {
           ),
           children: [
             TileLayer(
-              urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              subdomains: const ['a', 'b', 'c'],
+              //urlTemplate: "http://127.0.0.1:870/tile/{z}/{x}/{y}.png",
+              urlTemplate:
+                  "https://maptiles.p.rapidapi.com/en/map/v1/{z}/{x}/{y}.png?rapidapi-key=$MAP_API_KEY",
+              //urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+              //subdomains: const ['a', 'b', 'c'],
               maxNativeZoom: 19,
               maxZoom: 25,
             ),
             PolylineLayer(
+              saveLayers: false,
               polylines: [pathLine],
             ),
             MarkerLayer(
@@ -181,7 +207,7 @@ class _WatNavState extends State<WatNav> {
                   suggestionsCallback: (pattern) {
                     List<String> matches = <String>[];
                     if (pattern.isNotEmpty) {
-                      matches.addAll(buildings.returnBuildings(groundString));
+                      matches.addAll(classroomList);
                       matches.retainWhere((s) {
                         return s.toLowerCase().contains(pattern.toLowerCase());
                       });
@@ -196,10 +222,15 @@ class _WatNavState extends State<WatNav> {
                       ),
                     );
                   },
-                  onSuggestionSelected: (suggestion) {
+                  onSuggestionSelected: (suggestion) async {
                     isDestNode = true;
-                    dest = buildings.classrooms[suggestion]!.item2;
-                    endFloor = buildings.classrooms[suggestion]!.item3;
+                    var uri = Uri.http(requestUrl, "/classroom/$suggestion");
+                    final resp =
+                        await http.get(uri).timeout(const Duration(seconds: 3));
+                    final decoded = jsonDecode(resp.body)["value"];
+                    dest = LatLng(double.parse(decoded[1]["lat"]),
+                        double.parse(decoded[1]["lon"]));
+                    endFloor = int.parse(decoded[2]);
                     mapController.move(dest, 20);
                     typeAheadController.text = suggestion;
                     //Put marker at destination
@@ -247,7 +278,7 @@ class _WatNavState extends State<WatNav> {
                           suggestionsCallback: ((pattern) {
                             List<String> matches = <String>[];
                             if (pattern.isNotEmpty) {
-                              matches.addAll(buildings.returnBuildings(""));
+                              matches.addAll(classroomList);
                               matches.retainWhere((s) {
                                 return s
                                     .toLowerCase()
@@ -264,13 +295,21 @@ class _WatNavState extends State<WatNav> {
                                   child: Text(itemData.toString())),
                             );
                           },
-                          onSuggestionSelected: (suggestion) {
+                          onSuggestionSelected: (suggestion) async {
                             typeAheadController2.text = suggestion;
                             if (suggestion != groundString) {
                               isOriginNode = true;
-                              startFloor =
-                                  buildings.classrooms[suggestion]!.item3;
-                              origin = buildings.classrooms[suggestion]!.item2;
+                              var uri = Uri.http(
+                                  requestUrl, "/classroom/$suggestion");
+                              final resp = await http
+                                  .get(uri)
+                                  .timeout(const Duration(seconds: 3));
+                              final decoded = jsonDecode(resp.body)["value"];
+                              startFloor = int.parse(decoded[2]);
+                              //startFloor =
+                              //  buildings.classrooms[suggestion]!.item3;
+                              origin = LatLng(double.parse(decoded[1]["lat"]),
+                                  double.parse(decoded[1]["lon"]));
                             } else {
                               isOriginNode = false;
                               _getLocation();
@@ -346,9 +385,11 @@ class _WatNavState extends State<WatNav> {
                 ),
                 onPressed: () {
                   if (origin != dest) {
+                    path = [];
                     //LatLng temp = LatLng(43.471935837383704, -80.54473026509238);
                     setState(() {
                       circularProgressIndicatorVisibility = true;
+
                       markers[1] = Marker(
                         width: 40,
                         height: 40,
@@ -366,15 +407,60 @@ class _WatNavState extends State<WatNav> {
                       markers.removeAt(i);
                     }
                     /*IMPORTANT NOTE
-                  The future delayed below contains the code that generates the
-                  path (run inside a seperate thread using an isolate spawned
-                  with compute). Unforunately since flutter is dumb, there is no
-                  support for isolates for web apps, so in the future I have to 
-                  implement code to use worker threads for web app version
-                  (which means a javascript :( implementation of Dijktra's 
-                  algorithm must be made). For now though there will be a slight 
-                  freeze when using WEB APP but THIS DOESN'T APPLY TO MOBILE.
-                  */
+                    The future delayed below contains the code that generates the
+                    path (run inside a seperate thread using an isolate spawned
+                    with compute). Unforunately since flutter is dumb, there is no
+                    support for isolates for web apps, so in the future I have to 
+                    implement code to use worker threads for web app version
+                    (which means a javascript :( implementation of Dijktra's 
+                    algorithm must be made). For now though there will be a slight 
+                    freeze when using WEB APP but THIS DOESN'T APPLY TO MOBILE.
+                    */
+                    final queryParams = {
+                      "start_lat": "${origin.latitude}",
+                      "start_lon": "${origin.longitude}",
+                      "start_level": "$startFloor",
+                      "end_lat": "${dest.latitude}",
+                      "end_lon": "${dest.longitude}",
+                      "end_level": "$endFloor",
+                      "indoor_weight": "$indoorWeight"
+                    };
+                    var uri = Uri.http(requestUrl, "/route", queryParams);
+                    print(uri.toString());
+                    Marker tempMark;
+                    final resp = http
+                        .get(uri)
+                        .timeout(const Duration(seconds: 3))
+                        .then((value) => {
+                              //Get path
+                              for (var node in jsonDecode(value.body)["path"])
+                                {path.add(LatLng(node["lat"], node["lon"]))},
+                              //Get stair locations
+                              for (var node
+                                  in jsonDecode(value.body)["stair_locations"])
+                                {
+                                  tempMark = Marker(
+                                    point: LatLng(node["lat"], node["lon"]),
+                                    builder: (context) => const Align(
+                                      alignment: Alignment.center,
+                                      child: Icon(
+                                        Icons.stairs_rounded,
+                                        size: 25,
+                                      ),
+                                    ),
+                                  ),
+                                  markers.add(tempMark),
+                                },
+                              //Draw Path
+                              setState(() {
+                                pathLine = Polyline(
+                                    points: path,
+                                    color: Colors.red,
+                                    strokeWidth: 3.0);
+                                circularProgressIndicatorVisibility = false;
+                              })
+                            });
+                    /*
                     Future.delayed(const Duration(milliseconds: 500), () {
                       compute<IsolateModel, Map<double, List<LatLng>>>(
                               getPathIndoor,
@@ -447,7 +533,7 @@ class _WatNavState extends State<WatNav> {
                                 */
                                 })
                               });
-                    });
+                    });*/
                   }
                 },
                 child: const Text(

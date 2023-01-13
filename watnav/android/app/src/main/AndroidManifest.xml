@@ -32,4 +32,7 @@
             android:value="2" />
     </application>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Required to fetch data from the internet. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
 </manifest>
